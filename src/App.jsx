@@ -19,6 +19,10 @@ export default function App() {
   const [mood, setMood] = React.useState("");
   const [level, setLevel] = React.useState("");
   const [aiResponses, dispatch] = useReducer(aiResponsesReducer, []);
+  const [isLoading, setIsLoading] = React.useState(false);
+  const [error, setError] = React.useState("");
+
+  const GEMINI_API_KEY = "YOUR_API_KEY_HERE";
 
   const availableMoodBasedOnGenre = listOfMoodOption[genre];
 
@@ -34,32 +38,30 @@ export default function App() {
     }
   }, [genre, mood, level]);
 
-  // useCallback: Memoize getRecommendation
-  const getRecommendation = useCallback(async () => {
-    dispatch({
-      type: "ADD_RESPONSE",
-      payload: `Genre: ${genre}, Mood: ${mood}, and level: ${level}`,
-    });
-  }, [genre, mood, level]);
-
   // useCallback: Memoize fetchRecommendations
   const fetchRecommendations = useCallback(async () => {
-    if (!genre || !mood || !level) return;
+    if (!genre || !mood || !level) {
+      setError("Please select all options");
+      return;
+    }
+
+    setIsLoading(true);
+    setError("");
 
     try {
-      const GEMINI_API_KEY = "AIzaSyAaitFnIuiRbEjr7EcmMq9Ieg5LQJzAs2I";
       const response = await fetch(
-        "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=" +
-          GEMINI_API_KEY,
+        `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify({
             contents: [
               {
                 parts: [
                   {
-                    text: `Recommend 6 books for a ${level} ${genre} reader feeling ${mood}. Explain why.`,
+                    text: `Recommend 6 books for a ${level} ${genre} reader feeling ${mood}. For each book, provide the title, author, and a brief explanation of why it's suitable. Format your response clearly.`,
                   },
                 ],
               },
@@ -67,22 +69,36 @@ export default function App() {
           }),
         },
       );
-      const data = await response.json();
-      console.log(data);
 
-      if (data?.candidates) {
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log("API Response:", data);
+
+      if (data?.candidates && data.candidates.length > 0) {
         dispatch({
           type: "ADD_MULTIPLE_RESPONSES",
           payload: data.candidates,
         });
+      } else {
+        setError("No recommendations received. Please try again.");
       }
     } catch (err) {
-      console.log(err);
+      console.error("Error fetching recommendations:", err);
+      setError(
+        err.message || "Failed to fetch recommendations. Please try again.",
+      );
+    } finally {
+      setIsLoading(false);
     }
-  }, [genre, mood, level]);
+  }, [genre, mood, level, GEMINI_API_KEY]);
 
   return (
     <section>
+      <h1>AI Book Recommendation</h1>
+
       <SelectField
         placeholder="Please select a genre"
         id="genre"
@@ -107,18 +123,39 @@ export default function App() {
         value={level}
       />
 
-      <button onClick={fetchRecommendations}>Get Recommendation</button>
+      <button
+        onClick={fetchRecommendations}
+        disabled={!genre || !mood || !level || isLoading}
+      >
+        {isLoading ? "Loading..." : "Get Recommendation"}
+      </button>
+
+      {error && (
+        <div style={{ color: "red", margin: "20px 0" }}>
+          <strong>Error:</strong> {error}
+        </div>
+      )}
 
       <br />
       <br />
-      {aiResponses.map((recommend, index) => {
-        return (
-          <details key={index} name="recommendation">
-            <summary>Recommendation {index + 1}</summary>
-            <p>{recommend?.content?.[0]?.text || recommend}</p>
-          </details>
-        );
-      })}
+
+      {aiResponses.length > 0 && (
+        <div>
+          <h2>Recommendations:</h2>
+          {aiResponses.map((recommend, index) => (
+            <details
+              key={index}
+              name="recommendation"
+              style={{ marginBottom: "10px" }}
+            >
+              <summary>Recommendation {index + 1}</summary>
+              <div style={{ padding: "15px", whiteSpace: "pre-wrap" }}>
+                {recommend?.content?.parts?.[0]?.text || "No content available"}
+              </div>
+            </details>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
